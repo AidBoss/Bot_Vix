@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: gemini-telegram-bot
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.1-flash-lite
+      - key: BOT_NAME
+        value: Mây
+      # Tùy chọn: override prompt mặc định
+      # - key: SYSTEM_PROMPT
+      #   sync: false

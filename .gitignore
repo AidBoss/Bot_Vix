@@ -1,0 +1,41 @@
+# ===== Build output (Maven) =====
+target/
+build/
+*.class
+*.jar
+*.war
+dependency-reduced-pom.xml
+
+# ===== Secrets / config riêng tư =====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# ===== Logs =====
+logs/
+*.log
+hs_err_pid*
+
+# ===== IDE =====
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Khác =====
+.claude
+.github/
+tmp/
+*.tmp
