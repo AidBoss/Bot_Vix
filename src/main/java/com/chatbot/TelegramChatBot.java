@@ -70,8 +70,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
         } catch (Exception e) {
             System.err.println("Lỗi xử lý tin nhắn: " + e.getMessage());
             try {
-                reply(chatId, msg.getMessageId(),
-                        "Có lỗi xảy ra rồi 😢 Bạn thử lại sau giúp mình nha.");
+                reply(chatId, msg.getMessageId(), errorReply(e));
             } catch (Exception ignore) {
             }
         }
@@ -119,7 +118,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             }
         } catch (Exception e) {
             System.err.println("Lỗi /search: " + e.getMessage());
-            reply(chatId, msg.getMessageId(), "Tra cứu lỗi rồi 😢 Cậu thử lại sau nha.");
+            reply(chatId, msg.getMessageId(), errorReply(e));
         }
     }
 
@@ -161,6 +160,14 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             message.setParseMode(null);
             execute(message);
         }
+    }
+
+    /** Chọn message lỗi phù hợp: phân biệt quá tải quota (429) với lỗi khác. */
+    private static String errorReply(Exception e) {
+        if (GeminiService.isQuotaError(e)) {
+            return "Mây đang bị quá tải (hết lượt gọi rồi) 😴 Đợi mình chút rồi nhắn lại nha.";
+        }
+        return "Có lỗi xảy ra rồi 😢 Bạn thử lại sau giúp mình nha.";
     }
 
     private static String firstNonBlank(String... vals) {

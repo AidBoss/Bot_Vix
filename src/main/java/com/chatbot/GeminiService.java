@@ -93,9 +93,11 @@ public class GeminiService {
     private static final String SYSTEM_PROMPT =
             getEnvOrDefault("SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT);
 
-    // Bật Google Search grounding để model tra cứu tin mới (mặc định bật).
+    // Google Search grounding (tra cứu tin mới). MẶC ĐỊNH TẮT để tiết kiệm quota —
+    // grounding tốn quota nặng hơn và dễ dính 429 trên free tier. Vẫn bật được qua
+    // env ENABLE_SEARCH=true, hoặc dùng lệnh /search cho từng câu hỏi cụ thể.
     private static final boolean ENABLE_SEARCH =
-            !"false".equalsIgnoreCase(getEnvOrDefault("ENABLE_SEARCH", "true"));
+            "true".equalsIgnoreCase(getEnvOrDefault("ENABLE_SEARCH", "false"));
 
     private static final int MAX_CONTEXT = 10;          // số lượt giữ trong lịch sử
     private static final long INACTIVE_TIMEOUT_MS = 30 * 60 * 1000L;
@@ -286,5 +288,24 @@ public class GeminiService {
 
     public static String botName() {
         return BOT_NAME;
+    }
+
+    /**
+     * Kiểm tra xem lỗi có phải do vượt hạn mức Gemini (HTTP 429 / RESOURCE_EXHAUSTED)
+     * hay không, bằng cách dò qua toàn bộ chuỗi nguyên nhân (cause chain).
+     */
+    public static boolean isQuotaError(Throwable t) {
+        for (Throwable cur = t; cur != null; cur = cur.getCause()) {
+            String msg = cur.getMessage();
+            if (msg == null) continue;
+            String m = msg.toLowerCase(Locale.ROOT);
+            if (m.contains("429")
+                    || m.contains("resource_exhausted")
+                    || m.contains("exceeded your current quota")
+                    || m.contains("rate limit")) {
+                return true;
+            }
+        }
+        return false;
     }
 }
