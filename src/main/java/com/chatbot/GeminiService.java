@@ -1,11 +1,5 @@
 package com.chatbot;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -16,9 +10,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.google.genai.Client;
+import com.google.genai.types.Content;
+import com.google.genai.types.GenerateContentConfig;
+import com.google.genai.types.GenerateContentResponse;
+import com.google.genai.types.GoogleSearch;
+import com.google.genai.types.Part;
+import com.google.genai.types.Tool;
 
 /**
  * Gọi Gemini REST API và quản lý "trí nhớ" hội thoại theo từng user.
@@ -37,10 +35,6 @@ public class GeminiService {
             Long.parseLong(getEnvOrDefault("OWNER_ID", "6664632552"));
 
     private static final String API_KEY = System.getenv("GEMINI_API_KEY");
-
-    private static final String ENDPOINT =
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-                    + MODEL + ":generateContent?key=" + API_KEY;
 
     // Prompt mặc định: nói chuyện như một người bạn. Có thể override bằng env SYSTEM_PROMPT.
     private static final String DEFAULT_SYSTEM_PROMPT =
@@ -107,9 +101,7 @@ public class GeminiService {
     private static final long INACTIVE_TIMEOUT_MS = 30 * 60 * 1000L;
     private static final int TELEGRAM_MAX = 4000;
 
-    private final HttpClient http = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(15))
-            .build();
+    private final Client client = Client.builder().apiKey(API_KEY).build();
 
     /** Một lượt hội thoại đã lưu. */
     private record Turn(String role, String text) {}   // role: "user" | "model"
@@ -175,86 +167,49 @@ public class GeminiService {
                     + "- Vẫn giữ phong cách trả lời ngắn gọn, tự nhiên; chỉ khác ở thái độ tôn trọng.";
         }
 
-        JsonObject systemInstruction = new JsonObject();
-        systemInstruction.add("parts", partsArray(systemText));
+        Content systemInstruction = Content.builder()
+                .parts(Part.fromText(systemText))
+                .build();
 
         // ---- contents: lịch sử + tin nhắn mới ----
-        JsonArray contents = new JsonArray();
+        List<Content> contents = new ArrayList<>();
         for (Turn t : session.context) {
             contents.add(contentObj(t.role(), t.text()));
         }
         contents.add(contentObj("user", userText));
 
         // ---- generationConfig ----
-        JsonObject genConfig = new JsonObject();
-        genConfig.addProperty("temperature", 0.7);
-        genConfig.addProperty("topK", 40);
-        genConfig.addProperty("topP", 0.95);
-        genConfig.addProperty("maxOutputTokens", 2048);
-
-        JsonObject body = new JsonObject();
-        body.add("system_instruction", systemInstruction);
-        body.add("contents", contents);
-        body.add("generationConfig", genConfig);
+        GenerateContentConfig.Builder config = GenerateContentConfig.builder()
+                .systemInstruction(systemInstruction)
+                .temperature(0.7f)
+                .topK(40f)
+                .topP(0.95f)
+                .maxOutputTokens(2048);
 
         // ---- tools: cho phép model tra cứu Google Search khi cần tin mới ----
         if (ENABLE_SEARCH || forceSearch) {
-            JsonObject googleSearchTool = new JsonObject();
-            googleSearchTool.add("google_search", new JsonObject());
-            JsonArray tools = new JsonArray();
-            tools.add(googleSearchTool);
-            body.add("tools", tools);
+            Tool googleSearchTool = Tool.builder()
+                    .googleSearch(GoogleSearch.builder().build())
+                    .build();
+            config.tools(googleSearchTool);
         }
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(ENDPOINT))
-                .timeout(Duration.ofSeconds(60))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+        GenerateContentResponse resp =
+                client.models.generateContent(MODEL, contents, config.build());
+
+        return extractText(resp);
+    }
+
+    private static Content contentObj(String role, String text) {
+        return Content.builder()
+                .role(role)
+                .parts(Part.fromText(text))
                 .build();
-
-        HttpResponse<String> resp =
-                http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-
-        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-            throw new RuntimeException("Gemini API lỗi " + resp.statusCode() + ": " + resp.body());
-        }
-
-        return extractText(resp.body());
     }
 
-    private static JsonObject contentObj(String role, String text) {
-        JsonObject obj = new JsonObject();
-        obj.addProperty("role", role);
-        obj.add("parts", partsArray(text));
-        return obj;
-    }
-
-    private static JsonArray partsArray(String text) {
-        JsonObject part = new JsonObject();
-        part.addProperty("text", text);
-        JsonArray parts = new JsonArray();
-        parts.add(part);
-        return parts;
-    }
-
-    private static String extractText(String json) {
-        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-        JsonArray candidates = root.getAsJsonArray("candidates");
-        if (candidates == null || candidates.isEmpty()) {
-            return "Mình chưa nghĩ ra câu trả lời, thử lại giúp mình nha 🥲";
-        }
-        JsonObject content = candidates.get(0).getAsJsonObject().getAsJsonObject("content");
-        if (content == null) {
-            return "Mình chưa nghĩ ra câu trả lời, thử lại giúp mình nha 🥲";
-        }
-        JsonArray parts = content.getAsJsonArray("parts");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parts.size(); i++) {
-            JsonObject p = parts.get(i).getAsJsonObject();
-            if (p.has("text")) sb.append(p.get("text").getAsString());
-        }
-        String text = sb.toString().trim();
+    private static String extractText(GenerateContentResponse resp) {
+        String text = resp.text();
+        text = (text == null) ? "" : text.trim();
         return text.isEmpty() ? "Mình chưa nghĩ ra câu trả lời, thử lại giúp mình nha 🥲" : text;
     }
 

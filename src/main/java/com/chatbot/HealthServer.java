@@ -25,6 +25,16 @@ public class HealthServer {
                 body = "OK";
             }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+
+            // HEAD (Render health-check, uptime pinger) không được trả body. Báo Content-Length
+            // thủ công rồi gọi sendResponseHeaders(-1) để JDK không cảnh báo.
+            if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Content-Length", String.valueOf(bytes.length));
+                exchange.sendResponseHeaders(200, -1);
+                exchange.close();
+                return;
+            }
+
             exchange.sendResponseHeaders(200, bytes.length);
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(bytes);
