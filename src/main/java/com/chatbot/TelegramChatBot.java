@@ -83,8 +83,10 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             case "/start" -> send(chatId,
                     "👋 Chào cậu! Mình là *" + GeminiService.botName() + "* đây~\n\n" +
                     "💬 Cứ nhắn tin để tụi mình tám chuyện nha!\n" +
+                    "🔎 /search <từ khóa> — tra Google lấy thông tin mới nhất\n" +
                     "🧹 /clear — xóa lịch sử trò chuyện\n" +
                     "📊 /status — xem trạng thái bot");
+            case "/search" -> handleSearch(text, msg, chatId);
             case "/clear" -> {
                 gemini.clearMemory(msg.getFrom().getId());
                 send(chatId, "🧹 Xong! Mình xóa lịch sử rồi, mình bắt đầu lại từ đầu nha 😊");
@@ -92,6 +94,32 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             case "/status" -> send(chatId,
                     "📊 *Trạng thái bot*\n👥 Số phiên đang hoạt động: " + gemini.activeSessions());
             default -> { /* lệnh lạ thì bỏ qua */ }
+        }
+    }
+
+    /** /search <từ khóa> — ép bot tra Google rồi trả lời. */
+    private void handleSearch(String text, Message msg, long chatId) throws TelegramApiException {
+        // Bỏ phần "/search" (kèm "@botname" nếu có) để lấy từ khóa.
+        String query = text.replaceFirst("(?i)^/search(@\\S+)?\\s*", "").trim();
+        if (query.isBlank()) {
+            send(chatId, "🔎 Cậu muốn tra gì? Gõ kiểu: `/search giá vàng hôm nay` nha.");
+            return;
+        }
+
+        User from = msg.getFrom();
+        long userId = from.getId();
+        String userName = firstNonBlank(from.getFirstName(), from.getUserName(), "bạn");
+
+        sendTyping(chatId);
+        try {
+            List<String> responses = gemini.chat(query, userId, userName, true);
+            for (String response : responses) {
+                if (response == null || response.isBlank()) continue;
+                reply(chatId, msg.getMessageId(), response.trim());
+            }
+        } catch (Exception e) {
+            System.err.println("Lỗi /search: " + e.getMessage());
+            reply(chatId, msg.getMessageId(), "Tra cứu lỗi rồi 😢 Cậu thử lại sau nha.");
         }
     }
 

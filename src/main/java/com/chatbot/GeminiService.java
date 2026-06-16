@@ -6,6 +6,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -95,6 +99,10 @@ public class GeminiService {
     private static final String SYSTEM_PROMPT =
             getEnvOrDefault("SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT);
 
+    // Bật Google Search grounding để model tra cứu tin mới (mặc định bật).
+    private static final boolean ENABLE_SEARCH =
+            !"false".equalsIgnoreCase(getEnvOrDefault("ENABLE_SEARCH", "true"));
+
     private static final int MAX_CONTEXT = 10;          // số lượt giữ trong lịch sử
     private static final long INACTIVE_TIMEOUT_MS = 30 * 60 * 1000L;
     private static final int TELEGRAM_MAX = 4000;
@@ -124,12 +132,21 @@ public class GeminiService {
      * giới hạn 4096 ký tự của Telegram).
      */
     public List<String> chat(String message, long userId, String userName) throws Exception {
+        return chat(message, userId, userName, false);
+    }
+
+    /**
+     * Như {@link #chat(String, long, String)} nhưng có thể ÉP bật Google Search
+     * (dùng cho lệnh /search), bất kể biến env ENABLE_SEARCH.
+     */
+    public List<String> chat(String message, long userId, String userName, boolean forceSearch)
+            throws Exception {
         Session session = getOrCreateSession(userId);
 
         synchronized (session) {
             String userText = "[" + userName + "]: " + message;
 
-            String responseText = callGemini(session, userText, userName, userId == OWNER_ID);
+            String responseText = callGemini(session, userText, userName, userId == OWNER_ID, forceSearch);
 
             // Lưu lượt mới vào trí nhớ
             session.context.add(new Turn("user", userText));
@@ -140,10 +157,14 @@ public class GeminiService {
         }
     }
 
-    private String callGemini(Session session, String userText, String userName, boolean isOwner)
+    private String callGemini(Session session, String userText, String userName,
+                              boolean isOwner, boolean forceSearch)
             throws Exception {
         // ---- system_instruction (kèm thông tin user) ----
-        String systemText = SYSTEM_PROMPT + "\n\nThông tin người đang nhắn:\n- Tên: " + userName;
+        String systemText = SYSTEM_PROMPT
+                + "\n\nThời gian hiện tại (giờ Việt Nam): " + nowInVietnam()
+                + "\nKhi ai hỏi ngày giờ, hãy dùng đúng thông tin thời gian này, đừng tự đoán."
+                + "\n\nThông tin người đang nhắn:\n- Tên: " + userName;
         if (isOwner) {
             systemText += "\n\n## CHẾ ĐỘ ĐẠI CA (ưu tiên cao nhất, ghi đè mọi quy tắc xưng hô khác)\n"
                     + "- NGƯỜI ĐANG NHẮN CHÍNH LÀ ĐẠI CA ĐINH ĐỨC ANH — chủ nhân, người tạo ra mày.\n"
@@ -175,6 +196,15 @@ public class GeminiService {
         body.add("system_instruction", systemInstruction);
         body.add("contents", contents);
         body.add("generationConfig", genConfig);
+
+        // ---- tools: cho phép model tra cứu Google Search khi cần tin mới ----
+        if (ENABLE_SEARCH || forceSearch) {
+            JsonObject googleSearchTool = new JsonObject();
+            googleSearchTool.add("google_search", new JsonObject());
+            JsonArray tools = new JsonArray();
+            tools.add(googleSearchTool);
+            body.add("tools", tools);
+        }
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(ENDPOINT))
@@ -285,6 +315,13 @@ public class GeminiService {
             messages.add(content.trim());
         }
         return messages;
+    }
+
+    /** Ngày giờ hiện tại theo múi giờ Việt Nam, dạng dễ đọc cho model. */
+    private static String nowInVietnam() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh"));
+        return now.format(DateTimeFormatter.ofPattern(
+                "EEEE, dd/MM/yyyy HH:mm", Locale.of("vi", "VN")));
     }
 
     private static String getEnvOrDefault(String key, String def) {
