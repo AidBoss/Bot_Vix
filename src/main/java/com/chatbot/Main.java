@@ -2,10 +2,15 @@ package com.chatbot;
 
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.GetMe;
+import org.telegram.telegrambots.meta.api.methods.updates.DeleteWebhook;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
 public class Main {
+
+    /** Số lần thử lại khi khởi động gặp lỗi tạm thời (vd: 409 do instance cũ chưa tắt). */
+    private static final int STARTUP_MAX_RETRIES = 10;
+    private static final long STARTUP_RETRY_DELAY_MS = 5000L;
 
     public static void main(String[] args) {
         String token = System.getenv("TELEGRAM_BOT_TOKEN");
@@ -17,16 +22,7 @@ public class Main {
         }
 
         try {
-            // Tạm khởi tạo với username rỗng, sẽ lấy thật qua getMe()
-            TelegramChatBot bot = new TelegramChatBot(token, "");
-            User me = bot.execute(new GetMe());
-            String username = me.getUserName();
-
-            // Tạo lại bot với đúng username (cần cho việc nhận diện @tag trong nhóm)
-            bot = new TelegramChatBot(token, username);
-
-            TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
-            botsApi.registerBot(bot);
+            String username = startWithRetry(token);
             System.out.println("Bot @" + username + " đã khởi động (long polling).");
 
             // Health server cho Render keep-alive
@@ -41,6 +37,42 @@ public class Main {
             e.printStackTrace();
             System.exit(1);
         }
+    }
+
+    /**
+     * Khởi động bot, thử lại khi gặp lỗi tạm thời (điển hình là 409 Conflict do
+     * instance cũ trên Render chưa bị kill xong trong lúc deploy overlap).
+     * Trả về username thật của bot.
+     */
+    private static String startWithRetry(String token) throws Exception {
+        Exception last = null;
+        for (int attempt = 1; attempt <= STARTUP_MAX_RETRIES; attempt++) {
+            try {
+                // Tạm khởi tạo với username rỗng, sẽ lấy thật qua getMe()
+                TelegramChatBot probe = new TelegramChatBot(token, "");
+
+                // Xóa webhook (nếu lỡ được set) và bỏ backlog để tránh xung đột với getUpdates.
+                probe.execute(DeleteWebhook.builder().dropPendingUpdates(true).build());
+
+                User me = probe.execute(new GetMe());
+                String username = me.getUserName();
+
+                // Tạo lại bot với đúng username (cần cho việc nhận diện @tag trong nhóm)
+                TelegramChatBot bot = new TelegramChatBot(token, username);
+
+                TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+                botsApi.registerBot(bot);
+                return username;
+            } catch (Exception e) {
+                last = e;
+                System.err.println("Khởi động thất bại (lần " + attempt + "/" + STARTUP_MAX_RETRIES
+                        + "): " + e.getMessage());
+                if (attempt < STARTUP_MAX_RETRIES) {
+                    Thread.sleep(STARTUP_RETRY_DELAY_MS);
+                }
+            }
+        }
+        throw last;
     }
 
     private static boolean isBlank(String s) {
