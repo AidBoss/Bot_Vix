@@ -4,6 +4,7 @@ import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.GetMe;
 import org.telegram.telegrambots.meta.api.methods.updates.DeleteWebhook;
 import org.telegram.telegrambots.meta.api.objects.User;
+import org.telegram.telegrambots.meta.generics.BotSession;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
 public class Main {
@@ -61,7 +62,20 @@ public class Main {
                 TelegramChatBot bot = new TelegramChatBot(token, username);
 
                 TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
-                botsApi.registerBot(bot);
+                BotSession session = botsApi.registerBot(bot);
+
+                // Khi Render deploy lại, nó gửi SIGTERM cho instance cũ. Dừng phiên poll
+                // ngay lập tức để nhả kết nối getUpdates, tránh 409 Conflict với instance mới.
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    try {
+                        if (session != null && session.isRunning()) {
+                            session.stop();
+                            System.out.println("🛑 Đã dừng phiên bot (nhả kết nối Telegram).");
+                        }
+                    } catch (Exception ignore) {
+                    }
+                }, "bot-shutdown"));
+
                 return username;
             } catch (Exception e) {
                 last = e;
