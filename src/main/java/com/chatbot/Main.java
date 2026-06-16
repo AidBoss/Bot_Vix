@@ -13,6 +13,13 @@ public class Main {
     private static final int STARTUP_MAX_RETRIES = 10;
     private static final long STARTUP_RETRY_DELAY_MS = 5000L;
 
+    /**
+     * Nhịp chờ trước khi instance MỚI bắt đầu poll, để instance CŨ kịp nhận SIGTERM và
+     * nhả kết nối getUpdates — giảm chồng lấn gây 409 Conflict. Override bằng env STARTUP_GRACE_MS.
+     */
+    private static final long STARTUP_GRACE_MS =
+            parseLong(System.getenv("STARTUP_GRACE_MS"), 8000L);
+
     public static void main(String[] args) {
         String token = System.getenv("TELEGRAM_BOT_TOKEN");
         String geminiKey = System.getenv("GEMINI_API_KEY");
@@ -23,12 +30,20 @@ public class Main {
         }
 
         try {
-            String username = startWithRetry(token);
-            System.out.println("Bot @" + username + " đã khởi động (long polling).");
-
-            // Health server cho Render keep-alive
+            // 1) Health server lên TRƯỚC để Render đánh dấu instance mới "healthy" sớm, nhờ đó
+            //    Render gửi SIGTERM cho instance cũ nhanh hơn (shutdown hook con cũ nhả getUpdates).
             int port = parsePort(System.getenv("PORT"), 3000);
             HealthServer.start(port);
+
+            // 2) Chờ một nhịp cho instance cũ kịp nhả kết nối getUpdates, tránh giành nhau gây 409.
+            if (STARTUP_GRACE_MS > 0) {
+                System.out.println("⏳ Chờ " + STARTUP_GRACE_MS + "ms cho instance cũ nhả kết nối...");
+                Thread.sleep(STARTUP_GRACE_MS);
+            }
+
+            // 3) Giờ mới đăng ký bot + bắt đầu poll (startWithRetry vẫn là lưới an toàn cho 409 còn sót).
+            String username = startWithRetry(token);
+            System.out.println("Bot @" + username + " đã khởi động (long polling).");
 
             // Giữ tiến trình sống
             Thread.currentThread().join();
@@ -96,6 +111,14 @@ public class Main {
     private static int parsePort(String value, int def) {
         try {
             return value == null ? def : Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    private static long parseLong(String value, long def) {
+        try {
+            return value == null ? def : Long.parseLong(value.trim());
         } catch (NumberFormatException e) {
             return def;
         }
