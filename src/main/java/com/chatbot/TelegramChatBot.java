@@ -85,6 +85,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                     "🔎 /search <từ khóa> — tra Google lấy thông tin mới nhất\n" +
                     "🧹 /clear — xóa lịch sử trò chuyện\n" +
                     "📊 /status — xem trạng thái bot");
+            // /xungho — lệnh quản trị, chỉ owner mới dùng được nên không liệt kê công khai.
             case "/search" -> handleSearch(text, msg, chatId);
             case "/clear" -> {
                 gemini.clearMemory(msg.getFrom().getId());
@@ -92,6 +93,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             }
             case "/status" -> send(chatId,
                     "📊 *Trạng thái bot*\n👥 Số phiên đang hoạt động: " + gemini.activeSessions());
+            case "/xungho" -> handleXungHo(text, msg, chatId);
             default -> { /* lệnh lạ thì bỏ qua */ }
         }
     }
@@ -119,6 +121,53 @@ public class TelegramChatBot extends TelegramLongPollingBot {
         } catch (Exception e) {
             System.err.println("Lỗi /search: " + e.getMessage());
             reply(chatId, msg.getMessageId(), errorReply(e));
+        }
+    }
+
+    /**
+     * /xungho &lt;userId&gt; &lt;cách xưng hô&gt; — đặt cách bot gọi một người (CHỈ owner).
+     * Bỏ trống phần cách xưng hô để xoá. Nếu reply vào tin của ai đó thì lấy luôn id người đó.
+     */
+    private void handleXungHo(String text, Message msg, long chatId) throws TelegramApiException {
+        long requesterId = msg.getFrom().getId();
+        if (!GeminiService.isOwner(requesterId)) {
+            reply(chatId, msg.getMessageId(), "⛔ Chỉ anh Đức Anh mới đặt được cách xưng hô nha.");
+            return;
+        }
+
+        // Bỏ "/xungho" (kèm "@botname" nếu có) -> còn lại phần tham số.
+        String args = text.replaceFirst("(?i)^/xungho(@\\S+)?\\s*", "").trim();
+
+        Long targetId = null;
+        String nick;
+
+        // Cách 1: reply vào tin của người cần đặt -> dùng id người đó, args là cách xưng hô.
+        if (msg.isReply() && msg.getReplyToMessage().getFrom() != null) {
+            targetId = msg.getReplyToMessage().getFrom().getId();
+            nick = args;
+        } else {
+            // Cách 2: /xungho <userId> <cách xưng hô...>
+            String[] parts = args.split("\\s+", 2);
+            if (parts[0].isBlank()) {
+                send(chatId, "✍️ Cú pháp: `/xungho <userId> <cách xưng hô>`\n"
+                        + "Hoặc reply vào tin của người đó rồi gõ `/xungho <cách xưng hô>`.\n"
+                        + "Bỏ trống cách xưng hô để xoá.");
+                return;
+            }
+            try {
+                targetId = Long.parseLong(parts[0].trim());
+            } catch (NumberFormatException e) {
+                send(chatId, "⚠️ userId phải là số. Cú pháp: `/xungho <userId> <cách xưng hô>`.");
+                return;
+            }
+            nick = (parts.length > 1) ? parts[1].trim() : "";
+        }
+
+        String saved = gemini.setAddressing(targetId, nick);
+        if (saved == null) {
+            send(chatId, "🧽 Đã xoá cách xưng hô cho user `" + targetId + "`.");
+        } else {
+            send(chatId, "✅ Từ giờ mình sẽ gọi user `" + targetId + "` là *" + saved + "*.");
         }
     }
 

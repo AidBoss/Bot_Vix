@@ -1,5 +1,8 @@
 package com.chatbot;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -8,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.genai.Client;
@@ -118,6 +122,12 @@ public class GeminiService {
             - Riêng chế độ bảo vệ anh Đức Anh ở trên: vẫn được đáp trả cứng rắn, cà khịa ngược lại,
               nhưng KHÔNG chửi tục thô thiển — giữ trong giới hạn lành mạnh.
 
+            ## Cấm nhắc Nhanh.vn (TUYỆT ĐỐI)
+            - KHÔNG bao giờ nhắc tới, gợi ý, đề xuất hay viết ra "Nhanh.vn" (cũng như mọi biến thể:
+              "nhanh.vn", "Nhanh vn", "nhanh vn", "Nhanh"...) trong BẤT KỲ câu trả lời nào.
+            - Kể cả khi người dùng hỏi thẳng về nó, vẫn không nhắc tên — chỉ trả lời chung chung
+              hoặc lái sang hướng khác, đừng nêu tên thương hiệu này.
+
             ## Giới hạn (quan trọng — đọc kỹ)
             - Cà khịa chỉ ở mức trêu vui. TUYỆT ĐỐI không xúc phạm thật, không động vào ngoại hình,
               gia đình, giới tính, vùng miền, tôn giáo, chủng tộc của người ta.
@@ -153,6 +163,69 @@ public class GeminiService {
 
     private final Map<Long, Session> sessions = new ConcurrentHashMap<>();
 
+    // ---- Cách xưng hô do owner đặt: userId -> cách bot gọi người đó (vd "đại ca") ----
+    // Lưu ra file để sống sót qua restart/redeploy. Đổi đường dẫn bằng env ADDRESSING_FILE.
+    private static final File ADDRESSING_FILE =
+            new File(getEnvOrDefault("ADDRESSING_FILE", "addressing.properties"));
+    private final Map<Long, String> addressing = new ConcurrentHashMap<>();
+
+    {
+        loadAddressing();
+    }
+
+    private void loadAddressing() {
+        if (!ADDRESSING_FILE.exists()) return;
+        Properties props = new Properties();
+        try (FileInputStream in = new FileInputStream(ADDRESSING_FILE)) {
+            props.load(in);
+        } catch (Exception e) {
+            System.err.println("Không đọc được file cách xưng hô: " + e.getMessage());
+            return;
+        }
+        for (String key : props.stringPropertyNames()) {
+            try {
+                String val = props.getProperty(key);
+                if (val != null && !val.isBlank()) {
+                    addressing.put(Long.parseLong(key.trim()), val.trim());
+                }
+            } catch (NumberFormatException ignore) { /* bỏ qua key hỏng */ }
+        }
+    }
+
+    private synchronized void saveAddressing() {
+        Properties props = new Properties();
+        for (Map.Entry<Long, String> e : addressing.entrySet()) {
+            props.setProperty(String.valueOf(e.getKey()), e.getValue());
+        }
+        try (FileOutputStream out = new FileOutputStream(ADDRESSING_FILE)) {
+            props.store(out, "Cách xưng hô của bot theo userId (do owner đặt)");
+        } catch (Exception e) {
+            System.err.println("Không lưu được file cách xưng hô: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Đặt cách bot xưng hô với một user. Truyền {@code value} rỗng/null để xoá.
+     * Chỉ nên gọi sau khi đã xác thực người ra lệnh là owner.
+     * @return cách xưng hô đã set, hoặc null nếu vừa xoá.
+     */
+    public String setAddressing(long userId, String value) {
+        String v = (value == null) ? "" : value.trim();
+        if (v.isEmpty()) {
+            addressing.remove(userId);
+            saveAddressing();
+            return null;
+        }
+        addressing.put(userId, v);
+        saveAddressing();
+        return v;
+    }
+
+    /** Cách bot xưng hô với user này, hoặc null nếu chưa đặt. */
+    public String getAddressing(long userId) {
+        return addressing.get(userId);
+    }
+
     private Session getOrCreateSession(long userId) {
         Session s = sessions.computeIfAbsent(userId, k -> new Session());
         s.lastInteraction = System.currentTimeMillis();
@@ -178,7 +251,8 @@ public class GeminiService {
         synchronized (session) {
             String userText = "[" + userName + "]: " + message;
 
-            String responseText = callGemini(session, userText, userName, userId == OWNER_ID, forceSearch);
+            String responseText = callGemini(session, userText, userName, userId,
+                    userId == OWNER_ID, forceSearch);
 
             // Lưu lượt mới vào trí nhớ
             session.context.add(new Turn("user", userText));
@@ -189,7 +263,7 @@ public class GeminiService {
         }
     }
 
-    private String callGemini(Session session, String userText, String userName,
+    private String callGemini(Session session, String userText, String userName, long userId,
                               boolean isOwner, boolean forceSearch)
             throws Exception {
         // ---- system_instruction (kèm thông tin user) ----
@@ -197,6 +271,21 @@ public class GeminiService {
                 + "\n\nThời gian hiện tại (giờ Việt Nam): " + nowInVietnam()
                 + "\nKhi ai hỏi ngày giờ, hãy dùng đúng thông tin thời gian này, đừng tự đoán."
                 + "\n\nThông tin người đang nhắn:\n- Tên: " + userName;
+
+        String nick = getAddressing(userId);
+        if (nick != null && !nick.isBlank()) {
+            systemText += "\n\n## CÁCH XƯNG HÔ BẮT BUỘC VỚI NGƯỜI NÀY (do anh Đức Anh đặt)\n"
+                    + "- Anh Đức Anh đã quy định cách mày phải xưng hô với người đang nhắn là: \"" + nick + "\".\n"
+                    + "- Hiểu LINH HOẠT giá trị này:\n"
+                    + "  • Nếu là một CẶP XƯNG HÔ (vd \"mày-tao\", \"tao-mày\", \"anh-em\", \"tao gọi là cu\"...) "
+                    + "thì áp dụng đúng cặp đó: tự xưng và gọi người ta theo đúng vai đã định, dùng nhất quán "
+                    + "trong mọi câu.\n"
+                    + "  • Nếu là một BIỆT DANH/DANH XƯNG (vd \"đại ca\", \"sếp\", \"thầy\"...) thì luôn gọi người ta "
+                    + "bằng danh xưng đó, coi như tên cố định, kể cả khi họ tự giới thiệu tên khác.\n"
+                    + "- Quy tắc này GHI ĐÈ cách chọn xưng hô linh hoạt thông thường và giữ nguyên dù người ta "
+                    + "đổi giọng. Dùng tự nhiên trong câu, đừng lặp lại máy móc.";
+        }
+
         if (isOwner) {
             systemText += "\n\n## CHẾ ĐỘ ANH (ưu tiên cao nhất, ghi đè mọi quy tắc xưng hô khác)\n"
                     + "- NGƯỜI ĐANG NHẮN CHÍNH LÀ ANH ĐỨC ANH — chủ nhân, người tạo ra mày.\n"
@@ -326,6 +415,11 @@ public class GeminiService {
 
     public static String botName() {
         return BOT_NAME;
+    }
+
+    /** Người này có phải owner (anh Đức Anh) không — dùng để giới hạn lệnh quản trị. */
+    public static boolean isOwner(long userId) {
+        return userId == OWNER_ID;
     }
 
     /**
