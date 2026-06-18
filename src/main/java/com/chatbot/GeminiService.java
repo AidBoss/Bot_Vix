@@ -183,7 +183,9 @@ public class GeminiService {
     // Lưu ra file để sống sót qua restart/redeploy. Đổi đường dẫn bằng env ADDRESSING_FILE.
     private static final File ADDRESSING_FILE =
             new File(getEnvOrDefault("ADDRESSING_FILE", "addressing.properties"));
-    private final Map<Long, String> addressing = new ConcurrentHashMap<>();
+    /** Cách xưng hô + thông tin nhận dạng người được set (để còn tra "@name là ai"). */
+    private record AddrInfo(String nick, String username, String name) {}
+    private final Map<Long, AddrInfo> addressing = new ConcurrentHashMap<>();
 
     {
         loadAddressing();
@@ -199,19 +201,38 @@ public class GeminiService {
             return;
         }
         for (String key : props.stringPropertyNames()) {
-            try {
-                String val = props.getProperty(key);
-                if (val != null && !val.isBlank()) {
-                    addressing.put(Long.parseLong(key.trim()), val.trim());
-                }
-            } catch (NumberFormatException ignore) { /* bỏ qua key hỏng */ }
+            // Định dạng mới: "<id>.nick", "<id>.user", "<id>.name".
+            // Tương thích ngược định dạng cũ: "<id>=<nick>".
+            if (key.endsWith(".nick")) {
+                String idStr = key.substring(0, key.length() - ".nick".length());
+                try {
+                    long id = Long.parseLong(idStr.trim());
+                    String nick = props.getProperty(key);
+                    if (nick == null || nick.isBlank()) continue;
+                    addressing.put(id, new AddrInfo(nick.trim(),
+                            emptyToNull(props.getProperty(idStr + ".user")),
+                            emptyToNull(props.getProperty(idStr + ".name"))));
+                } catch (NumberFormatException ignore) { /* bỏ qua key hỏng */ }
+            } else if (!key.contains(".")) {
+                try {
+                    String nick = props.getProperty(key);
+                    if (nick != null && !nick.isBlank()) {
+                        addressing.put(Long.parseLong(key.trim()),
+                                new AddrInfo(nick.trim(), null, null));
+                    }
+                } catch (NumberFormatException ignore) { /* bỏ qua key hỏng */ }
+            }
         }
     }
 
     private synchronized void saveAddressing() {
         Properties props = new Properties();
-        for (Map.Entry<Long, String> e : addressing.entrySet()) {
-            props.setProperty(String.valueOf(e.getKey()), e.getValue());
+        for (Map.Entry<Long, AddrInfo> e : addressing.entrySet()) {
+            String id = String.valueOf(e.getKey());
+            AddrInfo info = e.getValue();
+            props.setProperty(id + ".nick", info.nick());
+            if (info.username() != null) props.setProperty(id + ".user", info.username());
+            if (info.name() != null) props.setProperty(id + ".name", info.name());
         }
         try (FileOutputStream out = new FileOutputStream(ADDRESSING_FILE)) {
             props.store(out, "Cách xưng hô của bot theo userId (do owner đặt)");
@@ -222,24 +243,50 @@ public class GeminiService {
 
     /**
      * Đặt cách bot xưng hô với một user. Truyền {@code value} rỗng/null để xoá.
+     * {@code username}/{@code name} là để bot còn nhận ra người đó khi ai hỏi "@name là ai"
+     * (có thể null nếu set bằng userId thuần).
      * Chỉ nên gọi sau khi đã xác thực người ra lệnh là owner.
      * @return cách xưng hô đã set, hoặc null nếu vừa xoá.
      */
-    public String setAddressing(long userId, String value) {
+    public String setAddressing(long userId, String value, String username, String name) {
         String v = (value == null) ? "" : value.trim();
         if (v.isEmpty()) {
             addressing.remove(userId);
             saveAddressing();
             return null;
         }
-        addressing.put(userId, v);
+        addressing.put(userId, new AddrInfo(v, emptyToNull(username), emptyToNull(name)));
         saveAddressing();
         return v;
     }
 
     /** Cách bot xưng hô với user này, hoặc null nếu chưa đặt. */
     public String getAddressing(long userId) {
-        return addressing.get(userId);
+        AddrInfo info = addressing.get(userId);
+        return info == null ? null : info.nick();
+    }
+
+    /**
+     * Bảng "danh bạ xưng hô" để nhét vào prompt: liệt kê mọi người đã được owner đặt cách
+     * xưng hô, kèm @username/tên (nếu biết) để model trả lời được khi ai hỏi "@name là ai".
+     * Trả về chuỗi rỗng nếu chưa đặt cho ai.
+     */
+    private String addressingDirectory() {
+        if (addressing.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<Long, AddrInfo> e : addressing.entrySet()) {
+            AddrInfo info = e.getValue();
+            sb.append("- ");
+            if (info.username() != null) sb.append("@").append(info.username()).append(" ");
+            if (info.name() != null) sb.append("(tên: ").append(info.name()).append(") ");
+            sb.append("[id ").append(e.getKey()).append("]");
+            sb.append(" → gọi là \"").append(info.nick()).append("\"\n");
+        }
+        return sb.toString();
+    }
+
+    private static String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 
     private Session getOrCreateSession(long userId) {
@@ -300,6 +347,17 @@ public class GeminiService {
                     + "bằng danh xưng đó, coi như tên cố định, kể cả khi họ tự giới thiệu tên khác.\n"
                     + "- Quy tắc này GHI ĐÈ cách chọn xưng hô linh hoạt thông thường và giữ nguyên dù người ta "
                     + "đổi giọng. Dùng tự nhiên trong câu, đừng lặp lại máy móc.";
+        }
+
+        String directory = addressingDirectory();
+        if (!directory.isBlank()) {
+            systemText += "\n\n## DANH BẠ XƯNG HÔ ĐÃ ĐẶT (anh Đức Anh quy định)\n"
+                    + "Đây là những người đã được đặt cách xưng hô cố định:\n" + directory
+                    + "- Khi có người HỎI về một trong những người trên (vd \"@user là ai\", "
+                    + "\"thằng X là ai\"), trả lời đúng theo danh xưng đã đặt — nhận ra họ qua @username, "
+                    + "tên, hoặc id ở trên.\n"
+                    + "- Khi nhắc tới hay nói chuyện với chính những người này, cũng gọi họ theo "
+                    + "danh xưng đã đặt cho nhất quán.";
         }
 
         if (isOwner) {

@@ -140,10 +140,15 @@ public class TelegramChatBot extends TelegramLongPollingBot {
 
         Long targetId = null;
         String nick;
+        String targetUsername = null;   // để bot còn nhận ra khi ai hỏi "@name là ai"
+        String targetName = null;
 
         // Cách 1: reply vào tin của người cần đặt -> dùng id người đó, args là cách xưng hô.
         if (msg.isReply() && msg.getReplyToMessage().getFrom() != null) {
-            targetId = msg.getReplyToMessage().getFrom().getId();
+            User target = msg.getReplyToMessage().getFrom();
+            targetId = target.getId();
+            targetUsername = target.getUserName();
+            targetName = target.getFirstName();
             nick = args;
         } else {
             // Cách 2: /xungho <userId> <cách xưng hô...>
@@ -163,7 +168,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             nick = (parts.length > 1) ? parts[1].trim() : "";
         }
 
-        String saved = gemini.setAddressing(targetId, nick);
+        String saved = gemini.setAddressing(targetId, nick, targetUsername, targetName);
         if (saved == null) {
             send(chatId, "🧽 Đã xoá cách xưng hô cho user `" + targetId + "`.");
         } else {
