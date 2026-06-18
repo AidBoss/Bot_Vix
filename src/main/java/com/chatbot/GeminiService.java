@@ -354,8 +354,9 @@ public class GeminiService {
             systemText += "\n\n## DANH BẠ XƯNG HÔ ĐÃ ĐẶT (anh Đức Anh quy định)\n"
                     + "Đây là những người đã được đặt cách xưng hô cố định:\n" + directory
                     + "- Khi có người HỎI về một trong những người trên (vd \"@user là ai\", "
-                    + "\"thằng X là ai\"), trả lời đúng theo danh xưng đã đặt — nhận ra họ qua @username, "
-                    + "tên, hoặc id ở trên.\n"
+                    + "\"thằng X là ai\", \"mày/bot gọi @user là gì\", \"@user được đặt tên gì\"), "
+                    + "trả lời đúng theo danh xưng đã đặt — nhận ra họ qua @username, tên, hoặc id ở trên. "
+                    + "So khớp @username BỎ QUA hoa/thường và dấu @.\n"
                     + "- Khi nhắc tới hay nói chuyện với chính những người này, cũng gọi họ theo "
                     + "danh xưng đã đặt cho nhất quán.";
         }
