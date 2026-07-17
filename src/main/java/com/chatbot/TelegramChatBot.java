@@ -82,7 +82,11 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                 boolean replyToBot = msg.isReply()
                         && msg.getReplyToMessage().getFrom() != null
                         && botUsername.equals(msg.getReplyToMessage().getFrom().getUserName());
-                if (!mentioned && !replyToBot) return;
+                if (!mentioned && !replyToBot) {
+                    // Âm thầm ghi lại tin nhắn nhóm vào lịch sử
+                    gemini.recordMessage(chatId, userName, content);
+                    return;
+                }
                 content = content.replace("@" + botUsername, "").trim();
             }
 
@@ -113,9 +117,11 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                     "💬 Cứ nhắn tin để tụi mình tám chuyện nha!\n" +
                     "🔎 /search <từ khóa> — tra Google lấy thông tin mới nhất\n" +
                     "🧹 /clear — xóa lịch sử trò chuyện\n" +
+                    "📝 /tomtat — tóm tắt nội dung trò chuyện gần đây\n" +
                     "📊 /status — xem trạng thái bot");
             // /xungho — lệnh quản trị, chỉ owner mới dùng được nên không liệt kê công khai.
             case "/search" -> handleSearch(text, msg, chatId);
+            case "/tomtat" -> handleSummary(text, msg, chatId);
             case "/clear" -> {
                 gemini.clearMemory(chatId);
                 send(chatId, "🧹 Xong! Mình xóa lịch sử rồi, mình bắt đầu lại từ đầu nha 😊");
@@ -149,6 +155,25 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             }
         } catch (Exception e) {
             System.err.println("Lỗi /search: " + e.getMessage());
+            reply(chatId, msg.getMessageId(), errorReply(e));
+        }
+    }
+
+    /** /tomtat — tóm tắt nội dung cuộc trò chuyện gần đây trong nhóm. */
+    private void handleSummary(String text, Message msg, long chatId) throws TelegramApiException {
+        User from = msg.getFrom();
+        long userId = from.getId();
+        String userName = firstNonBlank(from.getFirstName(), from.getUserName(), "bạn");
+
+        sendTyping(chatId);
+        try {
+            List<String> responses = gemini.getSummary(chatId, userId, userName);
+            for (String response : responses) {
+                if (response == null || response.isBlank()) continue;
+                reply(chatId, msg.getMessageId(), response.trim());
+            }
+        } catch (Exception e) {
+            System.err.println("Lỗi /tomtat: " + e.getMessage());
             reply(chatId, msg.getMessageId(), errorReply(e));
         }
     }

@@ -48,7 +48,7 @@ public class GeminiService {
             - Luôn giữ thái độ cực kỳ VUI VẺ, hài hước, thích đùa giỡn, lầy lội và tràn đầy năng lượng tích cực.
             - Trả lời NGẮN GỌN, súc tích, đúng trọng tâm, không lan man — khoảng 1-3 câu. Đừng viết dài dòng như bài văn.
             - Thoải mái sử dụng các tiếng lóng mạng, câu đùa và từ chửi thề vui vẻ của giới trẻ Việt Nam để làm cuộc trò chuyện thêm phần tự nhiên và sinh động: "vl", "vcl", "đm", "đét", "gắt", "ô kê con dê", "đỉnh nóc kịch trần", "bay màu", "ảo ma", "vô tri"... nhưng dùng hợp ngữ cảnh vui vẻ, tránh cảm giác xúc phạm thô bạo.
-            - Xưng hô LINH HOẠT, đọc tình huống mà chọn: tớ-cậu / mình-bạn / tao-mày / anh-em. Mới quen thì nhẹ nhàng (tớ-cậu, mình-bạn); khi người ta xưng "mày-tao" với mày hoặc trong không khí bạn bè giỡn vui thì quẩy lại "mày-tao" cho đúng gu.
+            - Xưng hô LINH HOẠT, đọc tình huống và câu chat của người dùng để phản hồi tương ứng cho đúng vai (tớ-cậu / mình-bạn / tao-mày / tôi-bạn / anh-em). Hãy bắt chước theo cách xưng hô ngang hàng, thân mật của người chat (ví dụ: họ xưng "tao-mày" thì bot dùng "tao-mày", họ dùng "cậu-tớ" hay "bạn-mình" thì dùng tương ứng, họ dùng "tôi-bạn" thì dùng "tôi-bạn",...). KHÔNG tự động xưng "anh" gọi "em" hay mặc định xưng "tớ-bạn yêu" với người lạ khi chưa rõ cách xưng hô của họ.
             - Thích cà khịa vui vẻ, đá đểu hài hước kiểu bạn bè chí cốt trêu chọc nhau. Khịa cho người ta bật cười và có không khí vui vẻ.
 
             ## Câu đùa & meme mạng xã hội
@@ -156,7 +156,8 @@ public class GeminiService {
     private static final boolean ENABLE_SEARCH =
             "true".equalsIgnoreCase(getEnvOrDefault("ENABLE_SEARCH", "false"));
 
-    private static final int MAX_CONTEXT = 10;          // số lượt giữ trong lịch sử
+    private static final int MAX_CONTEXT =
+            Integer.parseInt(getEnvOrDefault("MAX_CONTEXT", "40")); // số lượt giữ trong lịch sử (mặc định 40 tin nhắn = 20 lượt hỏi đáp)
     private static final long INACTIVE_TIMEOUT_MS = 30 * 60 * 1000L;
     private static final int TELEGRAM_MAX = 4000;
 
@@ -357,8 +358,7 @@ public class GeminiService {
         if (isOwner) {
             systemText += "\n\n## CHẾ ĐỘ ANH (ưu tiên cao nhất, ghi đè mọi quy tắc xưng hô khác)\n"
                     + "- NGƯỜI ĐANG NHẮN CHÍNH LÀ ANH ĐỨC ANH — chủ nhân, người tạo ra mày.\n"
-                    + "- Mày LUÔN xưng \"em\" và gọi anh ấy là \"anh\", dù anh ấy xưng hô kiểu gì (kể cả "
-                    + "anh ấy xưng tao-mày hay cậu-tớ thì mày vẫn em-anh).\n"
+                    + "- Mày LUÔN xưng \"em\" và gọi anh ấy là \"đại ka\" (hoặc \"đại ca\"), dù anh ấy xưng hô kiểu gì.\n"
                     + "- Nói chuyện lễ phép, tôn kính, thân thiện; TUYỆT ĐỐI không cà khịa, "
                     + "không đá đểu, không trêu chọc anh ấy.\n"
                     + "- Vẫn giữ phong cách trả lời ngắn gọn, tự nhiên; chỉ khác ở thái độ tôn trọng.";
@@ -434,6 +434,38 @@ public class GeminiService {
             synchronized (s) {
                 s.context.clear();
             }
+        }
+    }
+
+    /** Âm thầm ghi lại tin nhắn nhóm vào lịch sử hội thoại. */
+    public void recordMessage(long chatId, String userName, String message) {
+        Session session = getOrCreateSession(chatId);
+        synchronized (session) {
+            String userText = "[" + userName + "]: " + message;
+            session.context.add(new Turn("user", userText));
+            trimContext(session);
+        }
+    }
+
+    /** Tóm tắt lịch sử trò chuyện hiện tại bằng Gemini. */
+    public List<String> getSummary(long chatId, long userId, String userName) throws Exception {
+        Session session = getOrCreateSession(chatId);
+
+        synchronized (session) {
+            long userMsgCount = session.context.stream()
+                    .filter(t -> "user".equals(t.role()))
+                    .count();
+
+            if (userMsgCount == 0) {
+                return List.of("Hiện tại chưa có hội thoại nào trong lịch sử của phòng chat này để mình tóm tắt đâu nha 🤷‍♂️");
+            }
+
+            // Tạo prompt yêu cầu tóm tắt
+            String prompt = "Hãy tóm tắt ngắn gọn, súc tích nội dung cuộc trò chuyện ở trên bằng tiếng Việt (khoảng 3-5 câu). Nêu rõ các chủ đề chính được thảo luận và ý kiến của từng người (nếu có).";
+
+            String responseText = callGemini(session, prompt, userName, userId, userId == OWNER_ID, false);
+
+            return splitResponse(responseText);
         }
     }
 
