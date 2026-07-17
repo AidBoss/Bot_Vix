@@ -87,6 +87,7 @@ public class Main {
                             session.stop();
                             System.out.println("🛑 Đã dừng phiên bot (nhả kết nối Telegram).");
                         }
+                        bot.shutdown();
                     } catch (Exception ignore) {
                     }
                 }, "bot-shutdown"));

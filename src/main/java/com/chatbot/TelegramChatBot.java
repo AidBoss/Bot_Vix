@@ -1,6 +1,9 @@
 package com.chatbot;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
@@ -15,6 +18,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
 
     private final String botUsername;
     private final GeminiService gemini = new GeminiService();
+    private final ExecutorService executor = Executors.newFixedThreadPool(10);
 
     public TelegramChatBot(String token, String botUsername) {
         super(token);
@@ -26,8 +30,33 @@ public class TelegramChatBot extends TelegramLongPollingBot {
         return botUsername;
     }
 
+    public void shutdown() {
+        System.out.println("🤖 Đang dừng Thread Pool của bot...");
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        System.out.println("🤖 Đã dừng Thread Pool thành công.");
+    }
+
     @Override
     public void onUpdateReceived(Update update) {
+        executor.submit(() -> {
+            try {
+                processUpdate(update);
+            } catch (Exception e) {
+                System.err.println("Lỗi không mong muốn trong Executor: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+    }
+
+    private void processUpdate(Update update) {
         if (!update.hasMessage() || !update.getMessage().hasText()) return;
 
         Message msg = update.getMessage();
@@ -61,7 +90,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
 
             sendTyping(chatId);
 
-            List<String> responses = gemini.chat(content, userId, userName);
+            List<String> responses = gemini.chat(content, chatId, userId, userName);
             for (String response : responses) {
                 if (response == null || response.isBlank()) continue;
                 reply(chatId, msg.getMessageId(), response.trim());
@@ -88,7 +117,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
             // /xungho — lệnh quản trị, chỉ owner mới dùng được nên không liệt kê công khai.
             case "/search" -> handleSearch(text, msg, chatId);
             case "/clear" -> {
-                gemini.clearMemory(msg.getFrom().getId());
+                gemini.clearMemory(chatId);
                 send(chatId, "🧹 Xong! Mình xóa lịch sử rồi, mình bắt đầu lại từ đầu nha 😊");
             }
             case "/status" -> send(chatId,
@@ -113,7 +142,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
 
         sendTyping(chatId);
         try {
-            List<String> responses = gemini.chat(query, userId, userName, true);
+            List<String> responses = gemini.chat(query, chatId, userId, userName, true);
             for (String response : responses) {
                 if (response == null || response.isBlank()) continue;
                 reply(chatId, msg.getMessageId(), response.trim());
