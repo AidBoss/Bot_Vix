@@ -12,6 +12,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.genai.Client;
@@ -37,6 +39,24 @@ public class GeminiService {
     // Telegram ID của anh Đinh Đức Anh. Có thể override bằng env OWNER_ID.
     private static final long OWNER_ID =
             Long.parseLong(getEnvOrDefault("OWNER_ID", "6664632552"));
+
+    // Danh sách các Telegram ID được phép cấu hình cách xưng hô (cách nhau bởi dấu phẩy)
+    private static final Set<Long> ADMIN_IDS = parseAdminIds();
+
+    private static Set<Long> parseAdminIds() {
+        Set<Long> ids = new HashSet<>();
+        ids.add(OWNER_ID); // Mặc định luôn chứa Owner
+        ids.add(8126768527L); // Tài khoản phụ được cấp quyền mặc định
+        String envAdmins = System.getenv("ADMIN_IDS");
+        if (envAdmins != null && !envAdmins.isBlank()) {
+            for (String part : envAdmins.split(",")) {
+                try {
+                    ids.add(Long.parseLong(part.trim()));
+                } catch (NumberFormatException ignore) {}
+            }
+        }
+        return ids;
+    }
 
     private static final String API_KEY = System.getenv("GEMINI_API_KEY");
 
@@ -517,9 +537,14 @@ public class GeminiService {
         return BOT_NAME;
     }
 
-    /** Người này có phải owner (anh Đức Anh) không — dùng để giới hạn lệnh quản trị. */
+    /** Người này có phải owner (anh Đức Anh) không. */
     public static boolean isOwner(long userId) {
         return userId == OWNER_ID;
+    }
+
+    /** Kiểm tra xem user có quyền quản trị/đặt biệt danh không (gồm Owner và các ID trong ADMIN_IDS). */
+    public static boolean isAdmin(long userId) {
+        return ADMIN_IDS.contains(userId);
     }
 
     /**

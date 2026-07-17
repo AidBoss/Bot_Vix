@@ -179,13 +179,13 @@ public class TelegramChatBot extends TelegramLongPollingBot {
     }
 
     /**
-     * /xungho &lt;userId&gt; &lt;cách xưng hô&gt; — đặt cách bot gọi một người (CHỈ owner).
+     * /xungho &lt;userId&gt; &lt;cách xưng hô&gt; — đặt cách bot gọi một người (Chỉ quản trị viên).
      * Bỏ trống phần cách xưng hô để xoá. Nếu reply vào tin của ai đó thì lấy luôn id người đó.
      */
     private void handleXungHo(String text, Message msg, long chatId) throws TelegramApiException {
         long requesterId = msg.getFrom().getId();
-        if (!GeminiService.isOwner(requesterId)) {
-            reply(chatId, msg.getMessageId(), "⛔ Chỉ anh Đức Anh mới đặt được cách xưng hô nha.");
+        if (!GeminiService.isAdmin(requesterId)) {
+            reply(chatId, msg.getMessageId(), "⛔ Bạn không có quyền thiết lập cách xưng hô nha.");
             return;
         }
 
@@ -220,6 +220,11 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                 return;
             }
             nick = (parts.length > 1) ? parts[1].trim() : "";
+        }
+
+        if (GeminiService.isOwner(targetId) && requesterId != targetId) {
+            reply(chatId, msg.getMessageId(), "⛔ Bạn không thể thiết lập cách xưng hô cho đại ka Đức Anh.");
+            return;
         }
 
         String saved = gemini.setAddressing(targetId, nick, targetUsername, targetName);
