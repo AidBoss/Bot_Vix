@@ -292,6 +292,26 @@ public class GeminiService {
     }
 
     /**
+     * Danh sách tag/mention những người đã được đặt biệt danh (cách xưng hô).
+     * Trả về định dạng @username (hoặc [Biệt danh](tg://user?id=123)) để Telegram tag trực tiếp.
+     */
+    public List<String> getAddressingMentions() {
+        List<String> mentions = new ArrayList<>();
+        for (Map.Entry<Long, AddrInfo> entry : addressing.entrySet()) {
+            long userId = entry.getKey();
+            AddrInfo info = entry.getValue();
+            if (info != null && info.nick() != null && !info.nick().isBlank()) {
+                if (info.username() != null && !info.username().isBlank()) {
+                    mentions.add("@" + info.username());
+                } else {
+                    mentions.add("[" + info.nick() + "](tg://user?id=" + userId + ")");
+                }
+            }
+        }
+        return mentions;
+    }
+
+    /**
      * Bảng "danh bạ xưng hô" để nhét vào prompt: liệt kê mọi người đã được owner đặt cách
      * xưng hô, kèm @username/tên (nếu biết) để model trả lời được khi ai hỏi "@name là ai".
      * Trả về chuỗi rỗng nếu chưa đặt cho ai.

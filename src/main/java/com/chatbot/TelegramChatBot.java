@@ -30,6 +30,10 @@ public class TelegramChatBot extends TelegramLongPollingBot {
         return botUsername;
     }
 
+    public GeminiService getGemini() {
+        return gemini;
+    }
+
     public void shutdown() {
         System.out.println("🤖 Đang dừng Thread Pool của bot...");
         executor.shutdown();
@@ -118,8 +122,9 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                     "🔎 /search <từ khóa> — tra Google lấy thông tin mới nhất\n" +
                     "🧹 /clear — xóa lịch sử trò chuyện\n" +
                     "📝 /tomtat — tóm tắt nội dung trò chuyện gần đây\n" +
-                    "📊 /status — xem trạng thái bot");
-            // /xungho — lệnh quản trị, chỉ owner mới dùng được nên không liệt kê công khai.
+                    "📊 /status — xem trạng thái bot\n" +
+                    "🆔 /chatid — xem ID nhóm này");
+            // Các lệnh quản trị Gâu Hôm & Xưng Hô (chỉ owner mới dùng được)
             case "/search" -> handleSearch(text, msg, chatId);
             case "/tomtat" -> handleSummary(text, msg, chatId);
             case "/clear" -> {
@@ -127,7 +132,33 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                 send(chatId, "🧹 Xong! Mình xóa lịch sử rồi, mình bắt đầu lại từ đầu nha 😊");
             }
             case "/status" -> send(chatId,
-                    "📊 *Trạng thái bot*\n👥 Số phiên đang hoạt động: " + gemini.activeSessions());
+                    "📊 *Trạng thái bot*\n👥 Số phiên đang hoạt động: " + gemini.activeSessions() +
+                    "\n⏰ Nhóm Gâu Hôm Chat ID: `" + (GoHomeScheduler.getTargetChatId() != null ? GoHomeScheduler.getTargetChatId() : "Chưa cài đặt") + "`");
+            case "/chatid" -> send(chatId, "🆔 Chat ID của nhóm/cuộc trò chuyện này là: `" + chatId + "`");
+            case "/setgauhom" -> {
+                if (!GeminiService.isOwner(msg.getFrom().getId())) {
+                    reply(chatId, msg.getMessageId(), "⛔ Lệnh này chỉ dành riêng cho đại ka Đức Anh nha.");
+                    return;
+                }
+                GoHomeScheduler.setTargetChatId(chatId);
+                send(chatId, "✅ Đã đặt nhóm này (`" + chatId + "`) làm nơi nhận thông báo **Gâu Hôm** vào 5h35 chiều hàng ngày!");
+            }
+            case "/stopgauhom", "/cleargauhom", "/unsetgauhom" -> {
+                if (!GeminiService.isOwner(msg.getFrom().getId())) {
+                    reply(chatId, msg.getMessageId(), "⛔ Lệnh này chỉ dành riêng cho đại ka Đức Anh nha.");
+                    return;
+                }
+                GoHomeScheduler.clearTargetChatId();
+                send(chatId, "🔕 Đã tắt thông báo **Gâu Hôm**. Bot sẽ không gửi tin nhắn tự động nữa.");
+            }
+            case "/testgauhom" -> {
+                if (!GeminiService.isOwner(msg.getFrom().getId())) {
+                    reply(chatId, msg.getMessageId(), "⛔ Lệnh này chỉ dành riêng cho đại ka Đức Anh nha.");
+                    return;
+                }
+                send(chatId, "🧪 Đang thử nghiệm gửi thông báo Gâu Hôm...");
+                GoHomeScheduler.sendNotification(this, chatId);
+            }
             case "/xungho" -> handleXungHo(text, msg, chatId);
             default -> { /* lệnh lạ thì bỏ qua */ }
         }
@@ -261,7 +292,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
         }
     }
 
-    private void send(long chatId, String text) throws TelegramApiException {
+    public void send(long chatId, String text) throws TelegramApiException {
         SendMessage message = SendMessage.builder()
                 .chatId(String.valueOf(chatId))
                 .text(text)

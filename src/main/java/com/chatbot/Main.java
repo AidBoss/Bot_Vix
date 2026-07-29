@@ -79,10 +79,14 @@ public class Main {
                 TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
                 BotSession session = botsApi.registerBot(bot);
 
+                // Khởi động scheduler hẹn giờ thông báo Gâu Hôm (17:35)
+                GoHomeScheduler.start(bot);
+
                 // Khi Render deploy lại, nó gửi SIGTERM cho instance cũ. Dừng phiên poll
                 // ngay lập tức để nhả kết nối getUpdates, tránh 409 Conflict với instance mới.
                 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                     try {
+                        GoHomeScheduler.stop();
                         if (session != null && session.isRunning()) {
                             session.stop();
                             System.out.println("🛑 Đã dừng phiên bot (nhả kết nối Telegram).");
