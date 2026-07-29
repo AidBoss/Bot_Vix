@@ -141,7 +141,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                     return;
                 }
                 GoHomeScheduler.setTargetChatId(chatId);
-                send(chatId, "✅ Đã đặt nhóm này (`" + chatId + "`) làm nơi nhận thông báo **Gâu Hôm** vào 5h35 chiều hàng ngày!");
+                send(chatId, "✅ Đã đặt nhóm này (`" + chatId + "`) làm nơi nhận thông báo **Gâu Hôm** vào 5h35 chiều hàng ngày (UTC+7 Việt Nam)!");
             }
             case "/stopgauhom", "/cleargauhom", "/unsetgauhom" -> {
                 if (!GeminiService.isOwner(msg.getFrom().getId())) {

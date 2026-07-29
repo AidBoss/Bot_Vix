@@ -302,9 +302,15 @@ public class GeminiService {
             AddrInfo info = entry.getValue();
             if (info != null && info.nick() != null && !info.nick().isBlank()) {
                 if (info.username() != null && !info.username().isBlank()) {
-                    mentions.add("@" + info.username());
+                    String cleanUser = info.username().replace("_", "\\_");
+                    mentions.add("@" + cleanUser);
                 } else {
-                    mentions.add("[" + info.nick() + "](tg://user?id=" + userId + ")");
+                    String cleanNick = info.nick()
+                            .replace("_", "\\_")
+                            .replace("*", "\\*")
+                            .replace("[", "\\[")
+                            .replace("]", "\\]");
+                    mentions.add("[" + cleanNick + "](tg://user?id=" + userId + ")");
                 }
             }
         }

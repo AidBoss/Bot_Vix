@@ -44,7 +44,7 @@ public class GoHomeScheduler {
         int hour = parseEnvInt("GAU_HOM_HOUR", 17);
         int minute = parseEnvInt("GAU_HOM_MINUTE", 35);
 
-        ZoneId zoneId = ZoneId.of("Asia/Ho_Chi_Minh");
+        ZoneId zoneId = ZoneId.of("Asia/Ho_Chi_Minh"); // UTC+7 Việt Nam
         ZonedDateTime now = ZonedDateTime.now(zoneId);
         ZonedDateTime target = now.withHour(hour).withMinute(minute).withSecond(0).withNano(0);
 
@@ -82,7 +82,7 @@ public class GoHomeScheduler {
                 : String.join(" ", mentions);
 
         String msg = "🔔 **ĐẾN GIỜ GÂU HÔM RỒI MỌI NGƯỜI ƠI!** 🏃‍♂️💨\n\n" +
-                      tagText + " và các Bot thu dọn đồ đạc vè thôi nào! 🏡✨";
+                      tagText + " và các Bot thu dọn đồ đạc cook thôi nào!";
         try {
             bot.send(chatId, msg);
             System.out.println("✅ Đã gửi thông báo Gâu Hôm tới chat: " + chatId);
