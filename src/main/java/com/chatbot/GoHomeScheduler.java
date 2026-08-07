@@ -8,11 +8,15 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import java.util.List;
+import java.util.concurrent.ScheduledFuture;
 
 public class GoHomeScheduler {
 
     private static final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private static ScheduledFuture<?> currentTask = null;
     private static Long targetChatId = null;
+    private static int currentHour = 17;
+    private static int currentMinute = 35;
 
     static {
         String envChatId = System.getenv("GAU_HOM_CHAT_ID");
@@ -40,9 +44,20 @@ public class GoHomeScheduler {
         return targetChatId;
     }
 
-    public static void start(TelegramChatBot bot) {
-        int hour = parseEnvInt("GAU_HOM_HOUR", 17);
-        int minute = parseEnvInt("GAU_HOM_MINUTE", 35);
+    public static int getHour() {
+        return currentHour;
+    }
+
+    public static int getMinute() {
+        return currentMinute;
+    }
+
+    public static synchronized void reschedule(TelegramChatBot bot, int hour, int minute) {
+        currentHour = hour;
+        currentMinute = minute;
+        if (currentTask != null) {
+            currentTask.cancel(false);
+        }
 
         ZoneId zoneId = ZoneId.of("Asia/Ho_Chi_Minh"); // UTC+7 Việt Nam
         ZonedDateTime now = ZonedDateTime.now(zoneId);
@@ -58,7 +73,7 @@ public class GoHomeScheduler {
         System.out.printf("⏰ Đã lên lịch thông báo Gâu Hôm (%02d:%02d GMT+7). Lần chạy tiếp theo sau %d phút (%s).%n",
                 hour, minute, initialDelayMinutes, target);
 
-        scheduler.scheduleAtFixedRate(() -> {
+        currentTask = scheduler.scheduleAtFixedRate(() -> {
             try {
                 if (targetChatId != null) {
                     sendNotification(bot, targetChatId);
@@ -70,6 +85,12 @@ public class GoHomeScheduler {
                 e.printStackTrace();
             }
         }, initialDelaySeconds, 24 * 3600, TimeUnit.SECONDS);
+    }
+
+    public static void start(TelegramChatBot bot) {
+        int hour = parseEnvInt("GAU_HOM_HOUR", 17);
+        int minute = parseEnvInt("GAU_HOM_MINUTE", 35);
+        reschedule(bot, hour, minute);
     }
 
     public static void sendNotification(TelegramChatBot bot, long chatId) {
