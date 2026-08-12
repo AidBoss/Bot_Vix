@@ -134,10 +134,16 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                 gemini.clearMemory(chatId);
                 send(chatId, "🧹 Xong! Mình xóa lịch sử rồi, mình bắt đầu lại từ đầu nha 😊");
             }
-            case "/status" -> send(chatId,
-                    "📊 *Trạng thái bot*\n👥 Số phiên đang hoạt động: " + gemini.activeSessions() +
-                    "\n⏰ Nhóm Gâu Hôm Chat ID: `" + (GoHomeScheduler.getTargetChatId() != null ? GoHomeScheduler.getTargetChatId() : "Chưa cài đặt") + "`" +
-                    "\n🕒 Giờ thông báo Gâu Hôm: `" + String.format("%02d:%02d", GoHomeScheduler.getHour(), GoHomeScheduler.getMinute()) + "` (UTC+7)");
+            case "/status" -> {
+                String nextRun = GoHomeScheduler.getNextRunTimeFormatted();
+                send(chatId,
+                        "📊 *Trạng thái bot*\n👥 Số phiên đang hoạt động: " + gemini.activeSessions() +
+                        "\n⏰ Nhóm Gâu Hôm Chat ID: `" + (GoHomeScheduler.getTargetChatId() != null ? GoHomeScheduler.getTargetChatId() : "Chưa cài đặt") + "`" +
+                        "\n🕒 Giờ báo T2 - T6: `" + String.format("%02d:%02d", GoHomeScheduler.getHour(), GoHomeScheduler.getMinute()) + "` (UTC+7)" +
+                        "\n🕒 Giờ báo Thứ 7 (đầu & cuối tháng): `" + String.format("%02d:%02d", GoHomeScheduler.getSatHour(), GoHomeScheduler.getSatMinute()) + "` (UTC+7)" +
+                        "\n🚫 Nghỉ (không báo): Chủ Nhật & 2 Thứ 7 giữa tháng" +
+                        (nextRun != null ? "\n⏳ Lần báo tiếp theo: `" + nextRun + "`" : ""));
+            }
             case "/chatid" -> send(chatId, "🆔 Chat ID của nhóm/cuộc trò chuyện này là: `" + chatId + "`");
             case "/setgauhom" -> {
                 if (!GeminiService.isOwner(msg.getFrom().getId())) {
@@ -145,8 +151,13 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                     return;
                 }
                 GoHomeScheduler.setTargetChatId(chatId);
-                send(chatId, String.format("✅ Đã đặt nhóm này (`%d`) làm nơi nhận thông báo **Gâu Hôm** vào %02d:%02d chiều hàng ngày (UTC+7 Việt Nam)!",
-                        chatId, GoHomeScheduler.getHour(), GoHomeScheduler.getMinute()));
+                send(chatId, String.format("✅ Đã đặt nhóm này (`%d`) làm nơi nhận thông báo **Gâu Hôm**!\n" +
+                        "⏰ Giờ báo:\n" +
+                        "- Thứ 2 - Thứ 6: `%02d:%02d`\n" +
+                        "- Thứ 7 (đầu & cuối tháng): `%02d:%02d`\n" +
+                        "- Chủ Nhật & 2 Thứ 7 giữa tháng: Nghỉ (không báo)",
+                        chatId, GoHomeScheduler.getHour(), GoHomeScheduler.getMinute(),
+                        GoHomeScheduler.getSatHour(), GoHomeScheduler.getSatMinute()));
             }
             case "/settime" -> {
                 if (!GeminiService.isOwner(msg.getFrom().getId())) {
@@ -163,7 +174,7 @@ public class TelegramChatBot extends TelegramLongPollingBot {
                 int m = (timeParts.length > 1 && !timeParts[1].isBlank()) ? Integer.parseInt(timeParts[1].trim()) : 0;
 
                 GoHomeScheduler.reschedule(this, h, m);
-                send(chatId, String.format("⏰ Đã đổi thời gian hẹn giờ **Gâu Hôm** thành **%02d:%02d** (UTC+7 Việt Nam) hàng ngày!", h, m));
+                send(chatId, String.format("⏰ Đã đổi thời gian hẹn giờ **Gâu Hôm** (T2 - T6) thành **%02d:%02d** (UTC+7 Việt Nam)!", h, m));
             }
             case "/stopgauhom", "/cleargauhom", "/unsetgauhom" -> {
                 if (!GeminiService.isOwner(msg.getFrom().getId())) {
