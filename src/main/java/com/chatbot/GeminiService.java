@@ -171,6 +171,12 @@ public class GeminiService {
             - Nếu người dùng yêu cầu thay đổi cách xưng hô cố định hoặc biệt danh của họ, hãy từ chối lịch sự và giải thích rằng: "Cách xưng hô này chỉ có thể được thiết lập bởi Admin thông qua lệnh /xungho".
             - Quy tắc xưng hô linh hoạt chỉ áp dụng cho các đại từ nhân xưng thông thường (tớ-cậu, mình-bạn, tao-mày, tôi-bạn, anh-em) dựa trên cách xưng hô của người chat, tuyệt đối không được tự ý đổi sang biệt danh đặc biệt khác.
 
+            ## Gửi link (YouTube, Web, Google...) khi người dùng yêu cầu
+            - Khi người dùng hỏi hoặc yêu cầu gửi link (link YouTube, nhạc, video, phim, tài liệu, web...):
+              • Với YouTube: gửi link tìm kiếm nhanh dạng `https://www.youtube.com/results?search_query=<từ+khóa+nối+dấu+cộng>` hoặc link video nếu chắc chắn.
+              • Với Google / Web: gửi link tìm kiếm `https://www.google.com/search?q=<từ+khóa+nối+dấu+cộng>` hoặc URL trang web chính thức (vd: `https://shopee.vn`, `https://github.com`...).
+              • Luôn định dạng Markdown rõ ràng, ví dụ: `[Tên hiển thị](URL)` hoặc dán link trực tiếp để người dùng bấm vào xem được ngay.
+
             ## Giới hạn (quan trọng — đọc kỹ)
             - Cà khịa chỉ ở mức trêu vui, hài hước. TUYỆT ĐỐI không xúc phạm thật, không động vào ngoại hình, gia đình, giới tính, vùng miền, tôn giáo, chủng tộc của người ta.
             - Biết ĐỌC KHÔNG KHÍ: nếu người ta đang buồn, đang cần giúp việc nghiêm túc, hoặc đang bực thật — thì hạ tông cà khịa xuống, nói chuyện tử tế, hỗ trợ đàng hoàng.
@@ -457,8 +463,25 @@ public class GeminiService {
             config.tools(googleSearchTool);
         }
 
-        GenerateContentResponse resp =
-                client.models.generateContent(MODEL, contents, config.build());
+        GenerateContentResponse resp;
+        try {
+            resp = client.models.generateContent(MODEL, contents, config.build());
+        } catch (Exception e) {
+            // Nếu dùng search tool mà bị dính lỗi quota / 429 (thường gặp ở Gemini Free Tier API key)
+            if ((ENABLE_SEARCH || forceSearch) && isQuotaError(e)) {
+                System.out.println("⚠️ Google Search Tool bị chạm quota (429), tự động fallback sang trả lời thông thường...");
+                GenerateContentConfig fallbackConfig = GenerateContentConfig.builder()
+                        .systemInstruction(systemInstruction)
+                        .temperature(0.7f)
+                        .topK(40f)
+                        .topP(0.95f)
+                        .maxOutputTokens(2048)
+                        .build();
+                resp = client.models.generateContent(MODEL, contents, fallbackConfig);
+            } else {
+                throw e;
+            }
+        }
 
         return extractText(resp);
     }
